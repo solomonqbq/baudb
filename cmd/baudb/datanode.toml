@@ -1,0 +1,33 @@
+# let the baudb run as the roles of both gateway and backend
+tcp_port = "8088"
+http_port = "80"
+max_conn = 10000
+namespace = "pressure"
+lookback_delta = "5s"
+
+[etcd]
+  endpoints = ["11.54.137.115:2379","11.54.137.116:2379","11.54.137.117:2379"]
+  dial_timeout = "5s"
+  rw_timeout = "15s"
+  retry_num = 2
+  retry_interval = "2s"
+
+[storage]
+  [storage.tsdb]
+    paths = ["/data0/log", "/data1/log", "/data2/log", "/data3/log", "/data4/log", "/data5/log", "/data6/log", "/data7/log", "/data8/log", "/data9/log", "/data10/log"]
+    retention_duration = "168h"
+    block_ranges = [1800000, 3600000]
+    enable_wal = false
+  [storage.stat_report]
+    heartbeart_interval = "30s"
+    session_expire_ttl = "30s"
+  [storage.replication]
+    sample_feed_conns_num = 2
+    handleoff_size = "256m"
+    heartbeart_interval = "30s"
+
+[jaeger]
+  sampler_type = "ratelimiting"
+  sample_num_per_sec = 10
+  agent_host_port = ""
+  collector_endpoint = "http://zizhu.jd.com:14268/api/traces"

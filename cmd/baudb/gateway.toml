@@ -1,0 +1,33 @@
+# let the baudb run as the roles of both gateway and backend
+tcp_port = "8088"
+http_port = "80"
+max_conn = 10000
+namespace = "pressure"
+lookback_delta = "5s"
+
+[etcd]
+  endpoints = ["11.54.137.115:2379","11.54.137.116:2379","11.54.137.117:2379"]
+  dial_timeout = "5s"
+  rw_timeout = "15s"
+  retry_num = 2
+  retry_interval = "2s"
+
+[gateway]
+  read_conns_per_backend = 5
+  write_conns_per_backend = 1
+  query_strategy = "utilok"
+  [gateway.route]
+    shard_group_ttl = "8784h"
+    shard_group_tick_interval = "24h"
+  [gateway.appender]
+    async_transfer = true
+    timeout = "5s"
+  [gateway.query_engine]
+    concurrency = 50
+    timeout = "2m"
+
+[jaeger]
+  sampler_type = "ratelimiting"
+  sample_num_per_sec = 10
+  agent_host_port = ""
+  collector_endpoint = "http://zizhu.jd.com:14268/api/traces"
