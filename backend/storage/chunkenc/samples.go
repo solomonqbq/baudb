@@ -1,6 +1,9 @@
 package chunkenc
 
-import "sync"
+import (
+	"sync/atomic"
+	"unsafe"
+)
 
 type sample struct {
 	t int64
@@ -20,15 +23,20 @@ type element struct {
 
 	// The value stored with this element.
 	Value sample
-
-	sync.RWMutex
 }
 
 // Next returns the next list element or nil.
 func (e *element) Next() *element {
-	e.RLock()
+	p := (*element)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&e.next))))
+
+	if e.list != nil && p != &e.list.root {
+		return p
+	}
+	return nil
+}
+
+func (e *element) nextElem() *element {
 	p := e.next
-	e.RUnlock()
 
 	if e.list != nil && p != &e.list.root {
 		return p
@@ -38,9 +46,16 @@ func (e *element) Next() *element {
 
 // Prev returns the previous list element or nil.
 func (e *element) Prev() *element {
-	e.RLock()
+	p := (*element)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&e.prev))))
+
+	if e.list != nil && p != &e.list.root {
+		return p
+	}
+	return nil
+}
+
+func (e *element) prevElem() *element {
 	p := e.prev
-	e.RUnlock()
 
 	if e.list != nil && p != &e.list.root {
 		return p
@@ -66,9 +81,15 @@ func newList() *sampleList { return new(sampleList).Init() }
 
 // Front returns the first element of list l or nil if the list is empty.
 func (l *sampleList) First() (e *element) {
-	l.root.RLock()
-	defer l.root.RUnlock()
+	p := (*element)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&l.root.next))))
 
+	if p == &l.root {
+		return nil
+	}
+	return p
+}
+
+func (l *sampleList) firstElem() (e *element) {
 	if l.root.next == &l.root {
 		return nil
 	}
@@ -77,9 +98,15 @@ func (l *sampleList) First() (e *element) {
 
 // Back returns the last element of list l or nil if the list is empty.
 func (l *sampleList) Last() *element {
-	l.root.RLock()
-	defer l.root.RUnlock()
+	p := (*element)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&l.root.prev))))
 
+	if p == &l.root {
+		return nil
+	}
+	return p
+}
+
+func (l *sampleList) lastElem() *element {
 	if l.root.prev == &l.root {
 		return nil
 	}
@@ -88,20 +115,21 @@ func (l *sampleList) Last() *element {
 
 // insert inserts e after at, increments l.len, and returns e.
 func (l *sampleList) insertAt(e, at *element) *element {
-	at.Lock()
+	e.list = l
+
 	n := at.next
-	at.next = e
+
 	e.prev = at
 	e.next = n
-	n.prev = e
-	e.list = l
-	at.Unlock()
+
+	n.prev = e  //atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&n.prev)), unsafe.Pointer(e))
+	at.next = e //atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&at.next)), unsafe.Pointer(e))
 
 	return e
 }
 
 func (l *sampleList) Insert(s sample) *element {
-	for e := l.Last(); e != nil; e = e.Prev() {
+	for e := l.lastElem(); e != nil; e = e.prevElem() {
 		if e.Value.t <= s.t {
 			return l.insertAt(&element{Value: s}, e)
 		}
