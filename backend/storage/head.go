@@ -801,7 +801,7 @@ func (h *headIndexReader) Series(ref uint64, lbls *labels.Labels, chks *[]chunks
 
 	for i, c := range s.chunks {
 		// Do not expose chunks that are outside of the specified range.
-		if !c.OverlapsClosedInterval(h.mint, h.maxt) {
+		if c == nil || !c.OverlapsClosedInterval(h.mint, h.maxt) {
 			continue
 		}
 		// Set the head chunks as open (being appended to).
@@ -1082,7 +1082,14 @@ func (s *memSeries) minTime() int64 {
 	if len(s.chunks) == 0 {
 		return math.MinInt64
 	}
-	return s.chunks[0].minTime
+	for _, chk := range s.chunks {
+		if chk == nil {
+			continue
+		}
+		return chk.minTime
+	}
+
+	return math.MinInt64
 }
 
 func (s *memSeries) maxTime() int64 {
@@ -1096,6 +1103,9 @@ func (s *memSeries) maxTime() int64 {
 func (s *memSeries) chunksMetas() []chunks.Meta {
 	metas := make([]chunks.Meta, 0, len(s.chunks))
 	for _, chk := range s.chunks {
+		if chk == nil {
+			continue
+		}
 		metas = append(metas, chunks.Meta{Chunk: chk.chunk, MinTime: chk.minTime, MaxTime: chk.maxTime})
 	}
 	return metas
@@ -1160,36 +1170,39 @@ func (s *memSeries) truncateChunksBefore(mint int64) (removed int) {
 	return k
 }
 
+func (s *memSeries) tryGrow(newSize int) bool {
+	sz := len(s.chunks)
+	if sz >= newSize {
+		return false
+	}
+	if s.chunks == nil {
+		s.chunks = make([]*memChunk, newSize, newSize+1)
+	} else {
+		for sz < newSize {
+			s.chunks = append(s.chunks, nil)
+			sz++
+		}
+	}
+	return true
+}
+
 // append adds the sample (t, v) to the series.
 func (s *memSeries) append(t int64, v []byte) (success, chunkCreated bool) {
 	idx := (t - s.baseTime) / chunkenc.TimeWindowMs
+	grown := s.tryGrow(int(idx) + 1)
 
-	i := int64(len(s.chunks) - 1)
-	for i < idx {
-		i++
-		minT := s.baseTime + i*chunkenc.TimeWindowMs
+	c := s.chunks[idx]
+	if c == nil {
+		minT := s.baseTime + idx*chunkenc.TimeWindowMs
+		c = newMemChunk(minT, minT+chunkenc.TimeWindowMs)
 
-		c := &memChunk{
-			chunk:        chunkenc.NewFreezableChunk(),
-			minTime:      math.MaxInt64,
-			maxTime:      math.MinInt64,
-			minValidTime: minT,
-			maxValidTime: minT + chunkenc.TimeWindowMs,
+		s.chunks[idx] = c
+		if grown {
+			s.headChunk = c
 		}
-
-		app, err := c.chunk.Appender()
-		if err != nil {
-			panic(err)
-		}
-		c.app = app
-
-		s.chunks = append(s.chunks, c)
-		s.headChunk = c
-
 		chunkCreated = true
 	}
 
-	c := s.chunks[idx]
 	c.app.Append(t, v)
 
 	if t > c.maxTime {
@@ -1235,6 +1248,24 @@ type memChunk struct {
 	minTime, maxTime           int64
 	minValidTime, maxValidTime int64
 	app                        chunkenc.Appender
+}
+
+func newMemChunk(minValidTime, maxValidTime int64) *memChunk {
+	c := &memChunk{
+		chunk:        chunkenc.NewFreezableChunk(),
+		minTime:      math.MaxInt64,
+		maxTime:      math.MinInt64,
+		minValidTime: minValidTime,
+		maxValidTime: maxValidTime,
+	}
+
+	app, err := c.chunk.Appender()
+	if err != nil {
+		panic(err)
+	}
+	c.app = app
+
+	return c
 }
 
 // Returns true if the chunk overlaps [mint, maxt].
