@@ -543,11 +543,25 @@ func (fanoutApp *fanoutAppender) Add(l []msg.Label, t int64, v []byte, hash uint
 }
 
 func (fanoutApp *fanoutAppender) Flush() error {
-	var multiErr error
+	var (
+		multiErr error
+		wg       sync.WaitGroup
+		mtx      sync.Mutex
+	)
+
 	for _, app := range fanoutApp.appenders {
-		if err := app.Flush(); err != nil {
-			multiErr = multierr.Append(multiErr, err)
-		}
+		wg.Add(1)
+		go func(app *appender) {
+			defer wg.Done()
+
+			if err := app.Flush(); err != nil {
+				mtx.Lock()
+				multiErr = multierr.Append(multiErr, err)
+				mtx.Unlock()
+			}
+		}(app)
 	}
+	wg.Wait()
+
 	return multiErr
 }
