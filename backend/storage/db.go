@@ -50,6 +50,8 @@ var DefaultOptions = &Options{
 	NoLockfile:             false,
 	AllowOverlappingBlocks: false,
 	WALCompression:         false,
+	CompactLowWaterMark:    4 << 30, //4GB
+	CompactHighWaterMark:   math.MaxInt64,
 }
 
 // Options of the DB storage.
@@ -76,6 +78,12 @@ type Options struct {
 
 	// WALCompression will turn on Snappy compression for records on the WAL.
 	WALCompression bool
+
+	//compact head must over value,Even over time
+	CompactLowWaterMark uint64
+
+	//over threshold will be compact head immediately
+	CompactHighWaterMark uint64
 }
 
 // Appender allows appending a batch of data. It must be completed with a
@@ -119,8 +127,8 @@ type DB struct {
 	mtx    sync.RWMutex
 	blocks []*Block
 
-	hmtx      sync.RWMutex
-	head      *Head
+	hmtx sync.RWMutex
+	head *Head
 
 	compactc chan struct{}
 	donec    chan struct{}
@@ -298,7 +306,10 @@ func Open(dir string, l log.Logger, r prometheus.Registerer, opts *Options) (db 
 	}
 	db.compactCancel = cancel
 
-	db.head, err = NewHead(l, opts.BlockRanges[0])
+	db.head, err = NewHead(l, opts.BlockRanges[0], headWaterMark{
+		low:  opts.CompactLowWaterMark,
+		high: opts.CompactHighWaterMark,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -416,7 +427,7 @@ func (db *DB) compact() (err error) {
 			break
 		}
 
-		newHead, err := NewHead(db.head.logger, db.head.chunkRange)
+		newHead, err := NewHead(db.head.logger, db.head.chunkRange, db.head.waterMark)
 		if err != nil {
 			return nil
 		}

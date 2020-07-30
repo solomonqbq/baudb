@@ -77,8 +77,14 @@ type JaegerConfig struct {
 	CollectorEndpoint string `toml:"collector_endpoint"`
 }
 
+type CompactConfig struct {
+	LowWaterMark  toml.Size `toml:"low_watermark"`
+	HighWaterMark toml.Size `toml:"high_watermark"`
+}
+
 type LimitConfig struct {
-	RLimit uint64 `toml:"rlimit,omitempty"`
+	RLimit  uint64        `toml:"rlimit,omitempty"`
+	Compact CompactConfig `toml:"compact"`
 }
 
 type Config struct {
@@ -107,6 +113,12 @@ var Cfg = Config{
 		RWTimeout:     toml.Duration(15 * time.Second),
 		RetryNum:      2,
 		RetryInterval: toml.Duration(2 * time.Second),
+	},
+	Limit: LimitConfig{
+		Compact: CompactConfig{
+			LowWaterMark:  toml.Size(4 * G),
+			HighWaterMark: toml.Size(8 * G),
+		},
 	},
 }
 

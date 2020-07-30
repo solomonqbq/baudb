@@ -211,13 +211,16 @@ func New() (*Storage, error) {
 
 	var dbs []*DB
 
+	opts := &Options{
+		RetentionDuration:      uint64(vars.Cfg.Storage.TSDB.RetentionDuration) / 1e6,
+		BlockRanges:            vars.Cfg.Storage.TSDB.BlockRanges,
+		NoLockfile:             vars.Cfg.Storage.TSDB.NoLockfile,
+		AllowOverlappingBlocks: true,
+		CompactLowWaterMark:    uint64(vars.Cfg.Limit.Compact.LowWaterMark),
+		CompactHighWaterMark:   uint64(vars.Cfg.Limit.Compact.HighWaterMark),
+	}
 	for _, path := range vars.Cfg.Storage.TSDB.Paths {
-		db, err := Open(path, vars.Logger, nil, &Options{
-			RetentionDuration:      uint64(vars.Cfg.Storage.TSDB.RetentionDuration) / 1e6,
-			BlockRanges:            vars.Cfg.Storage.TSDB.BlockRanges,
-			NoLockfile:             vars.Cfg.Storage.TSDB.NoLockfile,
-			AllowOverlappingBlocks: true,
-		})
+		db, err := Open(path, vars.Logger, nil, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -402,7 +405,7 @@ func (storage *Storage) Info(detailed bool) (Stat, error) {
 		ShardID:  storage.shardID,
 		IP:       vars.LocalIP,
 		Port:     vars.Cfg.TcpPort,
-		DiskFree: uint64(math.Round(float64(diskFree) / 1073741824.0)), //GB
+		DiskFree: uint64(math.Round(float64(diskFree) / vars.G)), //GB
 	}
 
 	if !detailed {

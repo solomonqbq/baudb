@@ -69,6 +69,8 @@ type Head struct {
 	pendingReaders sync.WaitGroup
 	pendingWriters sync.WaitGroup
 
+	waterMark headWaterMark
+
 	chunkRange int64
 	metrics    *headMetrics
 	logger     log.Logger
@@ -89,6 +91,10 @@ type Head struct {
 	postings *index.MemPostings // postings lists for terms
 }
 
+type headWaterMark struct {
+	low, high uint64
+}
+
 type headMetrics struct {
 	activeAppenders   int64
 	seriesCreated     uint64
@@ -105,7 +111,7 @@ type headMetrics struct {
 }
 
 // NewHead opens the head block in dir.
-func NewHead(l log.Logger, chunkRange int64) (*Head, error) {
+func NewHead(l log.Logger, chunkRange int64, waterMark headWaterMark) (*Head, error) {
 	if l == nil {
 		l = log.NewNopLogger()
 	}
@@ -114,6 +120,7 @@ func NewHead(l log.Logger, chunkRange int64) (*Head, error) {
 	}
 	h := &Head{
 		logger:     l,
+		waterMark:  waterMark,
 		chunkRange: chunkRange,
 		minTime:    math.MaxInt64,
 		maxTime:    math.MinInt64,
@@ -622,7 +629,13 @@ func (h *Head) MinValidTime() int64 {
 // The 0.5 acts as a buffer of the appendable window.
 func (h *Head) compactable() bool {
 	bytesTotal := atomic.LoadUint64(&h.metrics.bytes)
-	return h.MaxTime()-h.MinTime() > h.chunkRange && bytesTotal > 3000000000
+	if bytesTotal > h.waterMark.high {
+		return true
+	}
+	if bytesTotal < h.waterMark.low {
+		return false
+	}
+	return h.MaxTime()-h.MinTime() > h.chunkRange
 }
 
 // Close flushes the WAL and closes the head.

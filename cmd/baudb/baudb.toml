@@ -7,6 +7,9 @@ lookback_delta = "5s"
 
 [limit]
   rlimit = 102400
+  [limit.compact]
+    low_watermark = "4G"
+    high_watermark = "8G"
 
 [etcd]
   endpoints = ["11.54.137.115:2379","11.54.137.116:2379","11.54.137.117:2379"]

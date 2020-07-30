@@ -12,8 +12,14 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
+const (
+	AppName = "baudb"
+	K       = 1024 * 1.0
+	M       = 1024 * K
+	G       = 1024 * M
+)
+
 var (
-	AppName        = "baudb"
 	CpuProfile     string
 	MemProfile     string
 	ConfigFilePath string
