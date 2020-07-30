@@ -260,6 +260,7 @@ func MergeChunks(a, b chunkenc.Chunk) (chunkenc.Chunk, error) {
 			app.Append(bt, bv)
 			bok = bit.Next()
 		} else {
+			app.Append(at, av)
 			app.Append(bt, bv)
 			aok = ait.Next()
 			bok = bit.Next()

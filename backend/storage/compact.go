@@ -196,6 +196,7 @@ func (c *LeveledCompactor) plan(dms []dirMeta) ([]string, error) {
 	if len(res) > 0 {
 		return res, nil
 	}
+
 	// No overlapping blocks, do compaction the usual way.
 	// We do not include a recently created block with max(minTime), so the block which was just created from WAL.
 	// This gives users a window of a full block size to piece-wise backup new data without having to care about data overlap.
@@ -208,17 +209,6 @@ func (c *LeveledCompactor) plan(dms []dirMeta) ([]string, error) {
 		return res, nil
 	}
 
-	// Compact any blocks with big enough time range that have >5% tombstones.
-	for i := len(dms) - 1; i >= 0; i-- {
-		meta := dms[i].meta
-		if meta.MaxTime-meta.MinTime < c.ranges[len(c.ranges)/2] {
-			break
-		}
-		if float64(meta.Stats.NumTombstones)/float64(meta.Stats.NumSeries+1) > 0.05 {
-			return []string{dms[i].dir}, nil
-		}
-	}
-
 	return nil, nil
 }
 
@@ -229,7 +219,7 @@ func (c *LeveledCompactor) selectDirs(ds []dirMeta) []dirMeta {
 		return nil
 	}
 
-	highTime := ds[len(ds)-1].meta.MinTime
+	highTime := ds[len(ds)-1].meta.MaxTime
 
 	for _, iv := range c.ranges[1:] {
 		parts := splitByRange(ds, iv)
@@ -247,12 +237,11 @@ func (c *LeveledCompactor) selectDirs(ds []dirMeta) []dirMeta {
 			}
 
 			mint := p[0].meta.MinTime
-			maxt := p[len(p)-1].meta.MaxTime
 			// Pick the range of blocks if it spans the full range (potentially with gaps)
 			// or is before the most recent block.
 			// This ensures we don't compact blocks prematurely when another one of the same
 			// size still fits in the range.
-			if (maxt-mint == iv || maxt <= highTime) && len(p) > 1 {
+			if highTime-mint > iv && len(p) > 1 {
 				return p
 			}
 		}
@@ -267,54 +256,43 @@ func (c *LeveledCompactor) selectOverlappingDirs(ds []dirMeta) []string {
 	if len(ds) < 2 {
 		return nil
 	}
+
 	var overlappingDirs []string
-	globalMaxt := ds[0].meta.MaxTime
-	for i, d := range ds[1:] {
-		if d.meta.MinTime < globalMaxt {
-			if len(overlappingDirs) == 0 { // When it is the first overlap, need to add the last one as well.
-				overlappingDirs = append(overlappingDirs, ds[i].dir)
+
+	for i := 1; i < len(ds); i++ {
+		var pre = ds[i-1]
+		var current = ds[i]
+
+		if current.meta.MinTime < pre.meta.MaxTime && (pre.meta.MaxTime-current.meta.MinTime) > (current.meta.MaxTime-pre.meta.MinTime)*3/5 {
+			if len(overlappingDirs) == 0 {
+				overlappingDirs = append(overlappingDirs, pre.dir)
 			}
-			overlappingDirs = append(overlappingDirs, d.dir)
+			overlappingDirs = append(overlappingDirs, current.dir)
 		} else if len(overlappingDirs) > 0 {
 			break
 		}
-		if d.meta.MaxTime > globalMaxt {
-			globalMaxt = d.meta.MaxTime
-		}
 	}
+
 	return overlappingDirs
 }
 
 // splitByRange splits the directories by the time range. The range sequence starts at 0.
-//
-// For example, if we have blocks [0-10, 10-20, 50-60, 90-100] and the split range tr is 30
-// it returns [0-10, 10-20], [50-60], [90-100].
 func splitByRange(ds []dirMeta, tr int64) [][]dirMeta {
 	var splitDirs [][]dirMeta
 
 	for i := 0; i < len(ds); {
 		var (
 			group []dirMeta
-			t0    int64
 			m     = ds[i].meta
 		)
-		// Compute start of aligned time range of size tr closest to the current block's start.
-		if m.MinTime >= 0 {
-			t0 = tr * (m.MinTime / tr)
-		} else {
-			t0 = tr * ((m.MinTime - tr + 1) / tr)
-		}
-		// Skip blocks that don't fall into the range. This can happen via mis-alignment or
-		// by being the multiple of the intended range.
-		if m.MaxTime > t0+tr {
+
+		if m.MaxTime-m.MinTime > tr {
 			i++
 			continue
 		}
 
-		// Add all dirs to the current group that are within [t0, t0+tr].
 		for ; i < len(ds); i++ {
-			// Either the block falls into the next range or doesn't fit at all (checked above).
-			if ds[i].meta.MaxTime > t0+tr {
+			if ds[i].meta.MaxTime-m.MinTime > tr {
 				break
 			}
 			group = append(group, ds[i])

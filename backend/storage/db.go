@@ -456,6 +456,37 @@ func (db *DB) compact() (err error) {
 		}
 	}
 
+	// Check for compactions of multiple blocks.
+	for {
+		plan, err := db.compactor.Plan(db.dir)
+		if err != nil {
+			return errors.Wrap(err, "plan compaction")
+		}
+		if len(plan) == 0 {
+			break
+		}
+
+		select {
+		case <-db.stopc:
+			return nil
+		default:
+		}
+
+		uid, err := db.compactor.Compact(db.dir, plan, db.blocks)
+		if err != nil {
+			return errors.Wrapf(err, "compact %s", plan)
+		}
+		runtime.GC()
+
+		if err := db.reload(); err != nil {
+			if err := os.RemoveAll(filepath.Join(db.dir, uid.String())); err != nil {
+				return errors.Wrapf(err, "delete compacted block after failed db reload:%s", uid)
+			}
+			return errors.Wrap(err, "reload blocks")
+		}
+		runtime.GC()
+	}
+
 	return nil
 }
 
