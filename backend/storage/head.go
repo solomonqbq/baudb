@@ -79,6 +79,7 @@ type Head struct {
 	numSeries  uint64
 
 	minTime, maxTime int64 // Current min and max of the samples included in the head.
+	minValidTime     int64 // Mint allowed to be added to the head.
 	lastSeriesID     uint64
 
 	// All series addressable by their ID or hash.
@@ -119,15 +120,16 @@ func NewHead(l log.Logger, chunkRange int64, waterMark headWaterMark) (*Head, er
 		return nil, errors.Errorf("invalid chunk range %d", chunkRange)
 	}
 	h := &Head{
-		logger:     l,
-		waterMark:  waterMark,
-		chunkRange: chunkRange,
-		minTime:    math.MaxInt64,
-		maxTime:    math.MinInt64,
-		series:     newStripeSeries(),
-		values:     map[string]stringset{},
-		symbols:    map[string]struct{}{},
-		postings:   index.NewUnorderedMemPostings(),
+		logger:       l,
+		waterMark:    waterMark,
+		chunkRange:   chunkRange,
+		minTime:      math.MaxInt64,
+		maxTime:      math.MinInt64,
+		minValidTime: getBaseTime(),
+		series:       newStripeSeries(),
+		values:       map[string]stringset{},
+		symbols:      map[string]struct{}{},
+		postings:     index.NewUnorderedMemPostings(),
 	}
 	h.metrics = &headMetrics{}
 
@@ -174,6 +176,7 @@ func (h *Head) Reset() (err error) {
 	}()
 
 	atomic.StoreInt64(&h.minTime, math.MaxInt64)
+	atomic.StoreInt64(&h.minValidTime, getBaseTime())
 
 	atomic.AddUint64(&h.metrics.headTruncateTotal, 1)
 	start := time.Now()
@@ -300,9 +303,10 @@ func (h *Head) appender() *headAppender {
 		head: h,
 		// Set the minimum valid time to whichever is greater the head min valid time or the compaciton window.
 		// This ensures that no samples will be added within the compaction window to avoid races.
-		mint:    math.MaxInt64,
-		maxt:    math.MinInt64,
-		samples: h.getAppendBuffer(),
+		minValidTime: atomic.LoadInt64(&h.minValidTime),
+		mint:         math.MaxInt64,
+		maxt:         math.MinInt64,
+		samples:      h.getAppendBuffer(),
 	}
 }
 
@@ -340,14 +344,19 @@ func (h *Head) putBytesBuffer(b []byte) {
 }
 
 type headAppender struct {
-	head       *Head
-	mint, maxt int64
+	head                       *Head
+	minValidTime int64 // No samples below this timestamp are allowed.
+	mint, maxt                 int64
 
 	series  []RefSeries
 	samples []RefSample
 }
 
 func (a *headAppender) Add(lset labels.Labels, t int64, v []byte) (uint64, error) {
+	if t < a.minValidTime {
+		return 0, ErrOutOfBounds
+	}
+
 	// Ensure no empty labels have gotten through.
 	lset = lset.WithoutEmpty()
 
@@ -362,6 +371,10 @@ func (a *headAppender) Add(lset labels.Labels, t int64, v []byte) (uint64, error
 }
 
 func (a *headAppender) AddFast(ref uint64, t int64, v []byte) error {
+	if t < a.minValidTime {
+		return ErrOutOfBounds
+	}
+
 	s := a.head.series.getByID(ref)
 	if s == nil {
 		return errors.Wrap(ErrNotFound, "unknown series")
@@ -859,7 +872,7 @@ func (h *Head) getOrCreate(hash uint64, lset labels.Labels) (*memSeries, bool) {
 }
 
 func (h *Head) getOrCreateWithID(id, hash uint64, lset labels.Labels) (*memSeries, bool) {
-	s := newMemSeries(lset, id)
+	s := newMemSeries(lset, id, h.minValidTime)
 
 	s, created := h.series.getOrSet(hash, s)
 	if !created {
@@ -1082,11 +1095,11 @@ type memSeries struct {
 	pendingCommit bool // Whether there are samples waiting to be committed to this series.
 }
 
-func newMemSeries(lset labels.Labels, id uint64) *memSeries {
+func newMemSeries(lset labels.Labels, id uint64, baseTime int64) *memSeries {
 	s := &memSeries{
 		lset:     lset,
 		ref:      id,
-		baseTime: math.MaxInt64,
+		baseTime: baseTime,
 	}
 	return s
 }
@@ -1135,18 +1148,18 @@ func (s *memSeries) reset() {
 
 // appendable checks whether the given sample is valid for appending to the series.
 func (s *memSeries) appendable(t int64, v interface{}) error {
-	if s.baseTime == math.MaxInt64 {
-		s.baseTime = getBaseTime()
-	}
-
-	if t < s.baseTime {
-		return ErrOutOfBounds
-	}
-
-	idx := (t - s.baseTime) / chunkenc.TimeWindowMs
-	if idx > 42 {
-		return ErrOutOfBounds
-	}
+	//if s.baseTime == math.MaxInt64 {
+	//	s.baseTime = getBaseTime()
+	//}
+	//
+	//if t < s.baseTime {
+	//	return ErrOutOfBounds
+	//}
+	//
+	//idx := (t - s.baseTime) / chunkenc.TimeWindowMs
+	//if idx > 42 {
+	//	return ErrOutOfBounds
+	//}
 	return nil
 }
 
@@ -1179,7 +1192,7 @@ func (s *memSeries) truncateChunksBefore(mint int64) (removed int) {
 	} else {
 		s.headChunk = s.chunks[len(s.chunks)-1]
 	}
-	s.baseTime = math.MaxInt64
+	s.baseTime = (mint / chunkenc.TimeWindowMs) * chunkenc.TimeWindowMs // math.MaxInt64
 	return k
 }
 
