@@ -439,19 +439,47 @@ func (db *DB) compact() (err error) {
 
 		// Wrap head into a range that bounds all reads to it.
 		toCompact.pendingWriters.Wait()
-		uid, err := db.compactor.Write(db.dir, toCompact, toCompact.MinTime(), toCompact.MaxTime(), nil)
-		if err != nil {
-			return errors.Wrap(err, "persist head block")
+
+		var persistErr, reloadErr tsdb_errors.MultiError
+
+		maxRange := db.opts.BlockRanges[len(db.opts.BlockRanges)-1]
+		mint := toCompact.MinTime()
+		maxt := rangeForTimestamp(mint, maxRange)
+
+		for maxt < toCompact.MaxTime() {
+			rangeToCompact := &rangeHead{
+				head: toCompact,
+				mint: mint,
+				maxt: maxt - 1,
+			}
+
+			uid, err := db.compactor.Write(db.dir, rangeToCompact, mint, maxt, nil)
+			mint = maxt
+			maxt = rangeForTimestamp(mint, maxRange)
+
+			if err != nil {
+				persistErr.Add(err)
+				continue
+			}
+
+			if err := db.reload(); err != nil {
+				if err := os.RemoveAll(filepath.Join(db.dir, uid.String())); err != nil {
+					reloadErr.Add(errors.Wrapf(err, "delete persisted head block after failed db reload:%s", uid))
+					continue
+				}
+				reloadErr.Add(err)
+			}
 		}
 
 		toCompact = nil
 
 		runtime.GC()
 
-		if err := db.reload(); err != nil {
-			if err := os.RemoveAll(filepath.Join(db.dir, uid.String())); err != nil {
-				return errors.Wrapf(err, "delete persisted head block after failed db reload:%s", uid)
-			}
+		if err := persistErr.Err(); err != nil {
+			return errors.Wrap(err, "persist head block")
+		}
+
+		if err := reloadErr.Err(); err != nil {
 			return errors.Wrap(err, "reload blocks")
 		}
 	}
