@@ -31,7 +31,7 @@ type FreezableChunk struct {
 }
 
 func NewFreezableChunk() *FreezableChunk {
-	b := make([]byte, 2, 256)
+	b := make([]byte, 4, 256)
 	return &FreezableChunk{
 		samples: make([]*sampleList, TimeWindowMs/timeWindowPerSampleList),
 		b:       bstream{stream: b},
@@ -50,7 +50,7 @@ func (c *FreezableChunk) Bytes() []byte {
 }
 
 func (c *FreezableChunk) NumSamples() int {
-	return int(binary.BigEndian.Uint16(c.b.bytes()))
+	return int(binary.BigEndian.Uint32(c.b.bytes()))
 }
 
 func (c *FreezableChunk) Freeze() error {
@@ -79,7 +79,7 @@ func (c *FreezableChunk) Freeze() error {
 
 	if err != nil {
 		b := c.b.bytes()
-		b = b[:2]
+		b = b[:4]
 
 		panic(err)
 
@@ -120,7 +120,7 @@ func (c *FreezableChunk) Iterator(it Iterator) Iterator {
 
 	for i, l := range c.samples {
 		if l != nil {
-			treeIter.reset(binary.BigEndian.Uint16(c.b.bytes()), c.samples[i:])
+			treeIter.reset(binary.BigEndian.Uint32(c.b.bytes()), c.samples[i:])
 			break
 		}
 	}
@@ -138,7 +138,7 @@ func (a *treeAppender) Append(t int64, v []byte) {
 		return
 	}
 
-	num := binary.BigEndian.Uint16(a.b.bytes())
+	num := binary.BigEndian.Uint32(a.b.bytes())
 
 	i := (t % TimeWindowMs) / timeWindowPerSampleList
 
@@ -152,7 +152,7 @@ func (a *treeAppender) Append(t int64, v []byte) {
 		t: t,
 		v: v,
 	})
-	binary.BigEndian.PutUint16(a.b.bytes(), num+1)
+	binary.BigEndian.PutUint32(a.b.bytes(), num+1)
 }
 
 type treeIterator struct {
@@ -161,11 +161,11 @@ type treeIterator struct {
 
 	err error
 
-	numTotal uint16
-	numRead  uint16
+	numTotal uint32
+	numRead  uint32
 }
 
-func (it *treeIterator) reset(numTotal uint16, samples []*sampleList) {
+func (it *treeIterator) reset(numTotal uint32, samples []*sampleList) {
 	it.e = nil
 	it.samples = samples
 	it.err = nil
@@ -229,8 +229,8 @@ type compressIterator struct {
 	t int64
 	v []byte
 
-	numTotal uint16
-	numRead  uint16
+	numTotal uint32
+	numRead  uint32
 
 	err error
 
@@ -238,7 +238,7 @@ type compressIterator struct {
 }
 
 func (it *compressIterator) Reset(b []byte) {
-	br := newBReader(b[2:])
+	br := newBReader(b[4:])
 
 	if it.zr != nil {
 		it.zr.Reset(br)
@@ -256,7 +256,7 @@ func (it *compressIterator) Reset(b []byte) {
 	it.v = nil
 	it.err = nil
 
-	it.numTotal = binary.BigEndian.Uint16(b)
+	it.numTotal = binary.BigEndian.Uint32(b)
 	it.numRead = 0
 }
 

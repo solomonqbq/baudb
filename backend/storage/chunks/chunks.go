@@ -254,26 +254,26 @@ func MergeChunks(a, b chunkenc.Chunk) (chunkenc.Chunk, error) {
 		at, av := ait.At()
 		bt, bv := bit.At()
 		if at < bt {
-			app.Append(at, av)
+			app.Append(at, clone(av))
 			aok = ait.Next()
 		} else if bt < at {
-			app.Append(bt, bv)
+			app.Append(bt, clone(bv))
 			bok = bit.Next()
 		} else {
-			app.Append(at, av)
-			app.Append(bt, bv)
+			app.Append(at, clone(av))
+			app.Append(bt, clone(bv))
 			aok = ait.Next()
 			bok = bit.Next()
 		}
 	}
 	for aok {
 		at, av := ait.At()
-		app.Append(at, av)
+		app.Append(at, clone(av))
 		aok = ait.Next()
 	}
 	for bok {
 		bt, bv := bit.At()
-		app.Append(bt, bv)
+		app.Append(bt, clone(bv))
 		bok = bit.Next()
 	}
 	if ait.Err() != nil {
@@ -510,4 +510,10 @@ func closeAll(cs []io.Closer) error {
 		merr.Add(c.Close())
 	}
 	return merr.Err()
+}
+
+func clone(v []byte) []byte {
+	vCopy := make([]byte, len(v))
+	copy(vCopy, v)
+	return vCopy
 }
