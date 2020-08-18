@@ -14,6 +14,7 @@
 package chunkenc
 
 import (
+	"io"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -28,8 +29,8 @@ func (e Encoding) String() string {
 		return "none"
 	case EncXOR:
 		return "XOR"
-	case EncFrozen:
-		return "frozen"
+	case EncCompress:
+		return "compress"
 	}
 	return "<unknown>"
 }
@@ -38,7 +39,7 @@ func (e Encoding) String() string {
 const (
 	EncNone Encoding = iota
 	EncXOR
-	EncFrozen
+	EncCompress
 )
 
 // Chunk holds a sequence of sample pairs that can be iterated over and appended to.
@@ -56,6 +57,11 @@ type Chunk interface {
 // Appender adds sample pairs to a chunk.
 type Appender interface {
 	Append(int64, []byte)
+}
+
+type AppendCloser interface {
+	Append(int64, []byte)
+	io.Closer
 }
 
 // Iterator is a simple iterator that can only get the next value.
@@ -92,7 +98,7 @@ func NewPool() Pool {
 	return &pool{
 		cpool: sync.Pool{
 			New: func() interface{} {
-				return &FreezableChunk{b: bstream{}}
+				return &CompressChunk{b: bstream{}}
 			},
 		},
 	}
@@ -100,11 +106,10 @@ func NewPool() Pool {
 
 func (p *pool) Get(e Encoding, b []byte) (Chunk, error) {
 	switch e {
-	case EncFrozen:
-		c := p.cpool.Get().(*FreezableChunk)
+	case EncCompress:
+		c := p.cpool.Get().(*CompressChunk)
 
 		c.b.stream = b
-		c.frozen = true
 		return c, nil
 	}
 	return nil, errors.Errorf("invalid encoding %q", e)
@@ -112,8 +117,8 @@ func (p *pool) Get(e Encoding, b []byte) (Chunk, error) {
 
 func (p *pool) Put(c Chunk) error {
 	switch c.Encoding() {
-	case EncFrozen:
-		cc, ok := c.(*FreezableChunk)
+	case EncCompress:
+		cc, ok := c.(*CompressChunk)
 		// This may happen often with wrapped chunks. Nothing we can really do about
 		// it but returning an error would cause a lot of allocations again. Thus,
 		// we just skip it.

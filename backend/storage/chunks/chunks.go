@@ -242,11 +242,13 @@ func MergeOverlappingChunks(chks []Meta) ([]Meta, error) {
 // MergeChunks vertically merges a and b, i.e., if there is any sample
 // with same timestamp in both a and b, the sample in a is discarded.
 func MergeChunks(a, b chunkenc.Chunk) (chunkenc.Chunk, error) {
-	newChunk := chunkenc.NewFreezableChunk()
-	app, err := newChunk.Appender()
+	newChunk := chunkenc.NewCompressChunk()
+	app, err := newChunk.CompressAppender()
 	if err != nil {
 		return nil, err
 	}
+	defer app.Close()
+
 	ait := a.Iterator(nil)
 	bit := b.Iterator(nil)
 	aok, bok := ait.Next(), bit.Next()
@@ -254,26 +256,26 @@ func MergeChunks(a, b chunkenc.Chunk) (chunkenc.Chunk, error) {
 		at, av := ait.At()
 		bt, bv := bit.At()
 		if at < bt {
-			app.Append(at, clone(av))
+			app.Append(at, av)
 			aok = ait.Next()
 		} else if bt < at {
-			app.Append(bt, clone(bv))
+			app.Append(bt, bv)
 			bok = bit.Next()
 		} else {
-			app.Append(at, clone(av))
-			app.Append(bt, clone(bv))
+			app.Append(at, av)
+			app.Append(bt, bv)
 			aok = ait.Next()
 			bok = bit.Next()
 		}
 	}
 	for aok {
 		at, av := ait.At()
-		app.Append(at, clone(av))
+		app.Append(at, av)
 		aok = ait.Next()
 	}
 	for bok {
 		bt, bv := bit.At()
-		app.Append(bt, clone(bv))
+		app.Append(bt, bv)
 		bok = bit.Next()
 	}
 	if ait.Err() != nil {
@@ -510,10 +512,4 @@ func closeAll(cs []io.Closer) error {
 		merr.Add(c.Close())
 	}
 	return merr.Err()
-}
-
-func clone(v []byte) []byte {
-	vCopy := make([]byte, len(v))
-	copy(vCopy, v)
-	return vCopy
 }

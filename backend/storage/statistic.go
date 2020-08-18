@@ -34,10 +34,10 @@ type OPStat struct {
 	ReceivedAdd     uint64
 	SucceedAdd      uint64
 	FailedAdd       uint64
-	AmendSample     uint64
+	TooLong         uint64
 	OutOfBounds     uint64
 	FailedCommit    uint64
-	LastAmendSample int64
+	LastTooLong     int64
 	LastOutOfBounds int64
 }
 
@@ -49,10 +49,10 @@ func (stat *OPStat) Reset() {
 	atomic.StoreUint64(&stat.ReceivedAdd, 0)
 	atomic.StoreUint64(&stat.SucceedAdd, 0)
 	atomic.StoreUint64(&stat.FailedAdd, 0)
-	atomic.StoreUint64(&stat.AmendSample, 0)
+	atomic.StoreUint64(&stat.TooLong, 0)
 	atomic.StoreUint64(&stat.OutOfBounds, 0)
 	atomic.StoreUint64(&stat.FailedCommit, 0)
-	atomic.StoreInt64(&stat.LastAmendSample, 0)
+	atomic.StoreInt64(&stat.LastTooLong, 0)
 	atomic.StoreInt64(&stat.LastOutOfBounds, 0)
 }
 
@@ -89,10 +89,10 @@ func (stat Stat) String() string {
 	buf = append(append(append(buf, "ReceivedAdd: "...), strconv.FormatUint(stat.OpStat.ReceivedAdd, 10)...), lnBreak)
 	buf = append(append(append(buf, "SucceedAdd: "...), strconv.FormatUint(stat.OpStat.SucceedAdd, 10)...), lnBreak)
 	buf = append(append(append(buf, "FailedAdd: "...), strconv.FormatUint(stat.OpStat.FailedAdd, 10)...), lnBreak)
-	buf = append(append(append(buf, "AmendSample: "...), strconv.FormatUint(stat.OpStat.AmendSample, 10)...), lnBreak)
+	buf = append(append(append(buf, "TooLong: "...), strconv.FormatUint(stat.OpStat.TooLong, 10)...), lnBreak)
 	buf = append(append(append(buf, "OutOfBounds: "...), strconv.FormatUint(stat.OpStat.OutOfBounds, 10)...), lnBreak)
 	buf = append(append(append(buf, "FailedCommit: "...), strconv.FormatUint(stat.OpStat.FailedCommit, 10)...), lnBreak)
-	buf = append(append(append(buf, "LastAmendSample: "...), formatTimestamp(stat.OpStat.LastAmendSample)...), lnBreak)
+	buf = append(append(append(buf, "LastTooLong: "...), formatTimestamp(stat.OpStat.LastTooLong)...), lnBreak)
 	buf = append(append(append(buf, "LastOutOfBounds: "...), formatTimestamp(stat.OpStat.LastOutOfBounds)...), lnBreak)
 
 	for _, dbStat := range stat.dbStats {

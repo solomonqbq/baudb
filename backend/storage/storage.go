@@ -518,9 +518,9 @@ func (addReqHandler *AddReqHandler) HandleAddReq(request *backendmsg.AddRequest)
 			} else {
 				atomic.AddUint64(&addReqHandler.opStat.FailedAdd, 1)
 				switch err {
-				case ErrAmendSample:
-					atomic.AddUint64(&addReqHandler.opStat.AmendSample, 1)
-					atomic.StoreInt64(&addReqHandler.opStat.LastAmendSample, p.T)
+				case ErrTooLong:
+					atomic.AddUint64(&addReqHandler.opStat.TooLong, 1)
+					atomic.StoreInt64(&addReqHandler.opStat.LastTooLong, p.T)
 				case ErrOutOfBounds:
 					atomic.AddUint64(&addReqHandler.opStat.OutOfBounds, 1)
 					atomic.StoreInt64(&addReqHandler.opStat.LastOutOfBounds, p.T)

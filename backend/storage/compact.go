@@ -761,8 +761,8 @@ func (c *LeveledCompactor) populateBlock(blocks []BlockReader, meta *BlockMeta, 
 				if !chk.OverlapsClosedInterval(dranges[0].Mint, dranges[len(dranges)-1].Maxt) {
 					continue
 				}
-				newChunk := chunkenc.NewFreezableChunk()
-				app, err := newChunk.Appender()
+				newChunk := chunkenc.NewCompressChunk()
+				app, err := newChunk.CompressAppender()
 				if err != nil {
 					return err
 				}
@@ -778,6 +778,8 @@ func (c *LeveledCompactor) populateBlock(blocks []BlockReader, meta *BlockMeta, 
 					t, v = delIter.At()
 					app.Append(t, v)
 				}
+				app.Close()
+
 				if err := delIter.Err(); err != nil {
 					return errors.Wrap(err, "iterate chunk while re-encoding")
 				}

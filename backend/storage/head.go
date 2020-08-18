@@ -38,7 +38,7 @@ var (
 
 	// ErrAmendSample is returned if an appended sample has the same timestamp
 	// as the most recent sample but a different value.
-	ErrAmendSample = errors.New("amending sample")
+	ErrTooLong = errors.New("too big len of value")
 
 	// ErrOutOfBounds is returned if an appended sample is out of the
 	// writable time range.
@@ -1147,7 +1147,7 @@ func (s *memSeries) reset() {
 }
 
 // appendable checks whether the given sample is valid for appending to the series.
-func (s *memSeries) appendable(t int64, v interface{}) error {
+func (s *memSeries) appendable(t int64, v []byte) error {
 	//if s.baseTime == math.MaxInt64 {
 	//	s.baseTime = getBaseTime()
 	//}
@@ -1160,6 +1160,11 @@ func (s *memSeries) appendable(t int64, v interface{}) error {
 	//if idx > 42 {
 	//	return ErrOutOfBounds
 	//}
+	const maxLenOfValue = 16 * 1024
+
+	if len(v) > maxLenOfValue {
+		return ErrTooLong
+	}
 	return nil
 }
 
