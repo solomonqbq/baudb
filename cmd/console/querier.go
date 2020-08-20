@@ -17,7 +17,9 @@ package main
 
 import (
 	"context"
-	"github.com/baudb/baudb/backend"
+
+	"github.com/baudb/baudb/gateway"
+	"github.com/baudb/baudb/gateway/backend"
 	backendmsg "github.com/baudb/baudb/msg/backend"
 	"github.com/pkg/errors"
 )
@@ -65,7 +67,7 @@ func (q *querier) Select(selectParams *backend.SelectParams, matchers ...*backen
 		return nil, err
 	}
 
-	return backend.FromQueryResult(res.(*backendmsg.SelectResponse)), nil
+	return gateway.FromQueryResult(res.(*backendmsg.SelectResponse)), nil
 }
 
 // LabelValues implements Querier and is a noop.

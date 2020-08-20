@@ -24,9 +24,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/baudb/baudb/backend"
-	"github.com/baudb/baudb/backend/storage"
-	"github.com/baudb/baudb/logql"
+	"github.com/baudb/baudb/datanode"
+	"github.com/baudb/baudb/gateway"
+	"github.com/baudb/baudb/gateway/logql"
 	"github.com/baudb/baudb/meta"
 	"github.com/baudb/baudb/msg"
 	backendmsg "github.com/baudb/baudb/msg/backend"
@@ -41,8 +41,8 @@ import (
 )
 
 type tcpServerObserver struct {
-	gateway   *Gateway
-	storage   *storage.Storage
+	gateway   *gateway.API
+	datanode  *datanode.API
 	heartbeat *meta.Heartbeat
 }
 
@@ -66,7 +66,7 @@ func (obs *tcpServerObserver) OnStart() error {
 func (obs *tcpServerObserver) OnStop() error {
 	if obs.heartbeat != nil {
 		obs.heartbeat.Stop()
-		obs.storage.Close()
+		obs.datanode.Close()
 	}
 	level.Info(Logger).Log("msg", "baudb shutdown")
 	return nil
@@ -103,26 +103,27 @@ func (obs *tcpServerObserver) OnAccept(tcpConn *net.TCPConn) *tcp.ReadWriteLoop 
 		case *gatewaymsg.LabelValuesRequest:
 			response.SetRaw(obs.gateway.LabelValues(request))
 		case *backendmsg.AddRequest:
-			response.SetRaw(obs.storage.HandleAddReq(request))
+			response.SetRaw(obs.datanode.HandleAddReq(request))
+			obs.datanode.ReplicateManager.HandleWriteReq(reqBytes)
 		case *backendmsg.SelectRequest:
-			response.SetRaw(obs.storage.HandleSelectReq(request))
+			response.SetRaw(obs.datanode.HandleSelectReq(request))
 		case *backendmsg.LabelValuesRequest:
-			response.SetRaw(obs.storage.HandleLabelValuesReq(request))
+			response.SetRaw(obs.datanode.HandleLabelValuesReq(request))
 		case *backendmsg.SlaveOfCommand:
-			//response.SetRaw(obs.storage.ReplicateManager.HandleSlaveOfCmd(request))
+			response.SetRaw(obs.datanode.ReplicateManager.HandleSlaveOfCmd(request))
 		case *backendmsg.SyncHandshake:
-			//response.SetRaw(obs.storage.ReplicateManager.HandleSyncHandshake(request))
+			response.SetRaw(obs.datanode.ReplicateManager.HandleSyncHandshake(request))
 		case *backendmsg.SyncHeartbeat:
-			//response.SetRaw(obs.storage.ReplicateManager.HandleHeartbeat(request))
+			response.SetRaw(obs.datanode.ReplicateManager.HandleHeartbeat(request))
 		case *backendmsg.AdminCmdInfo:
-			info, err := obs.storage.Info(true)
+			info, err := obs.datanode.Info(true)
 			if err != nil {
 				response.SetRaw(&msg.GeneralResponse{Status: msg.StatusCode_Failed, Message: err.Error()})
 			} else {
 				response.SetRaw(&msg.GeneralResponse{Status: msg.StatusCode_Succeed, Message: info.String()})
 			}
 		case *backendmsg.AdminCmdJoinCluster:
-			shardID, err := obs.storage.JoinCluster(request.Addr)
+			shardID, err := obs.datanode.JoinCluster(request.Addr)
 			if err != nil {
 				response.SetRaw(&msg.GeneralResponse{Status: msg.StatusCode_Failed, Message: err.Error()})
 			} else {
@@ -136,54 +137,54 @@ func (obs *tcpServerObserver) OnAccept(tcpConn *net.TCPConn) *tcp.ReadWriteLoop 
 
 func Run() {
 	var (
-		localStorage *storage.Storage
-		heartbeat    *meta.Heartbeat
-		gateway      *Gateway
-		router       = fasthttprouter.New()
+		gatewayAPI  *gateway.API
+		datanodeAPI *datanode.API
+		heartbeat   *meta.Heartbeat
+		router      = fasthttprouter.New()
 	)
+
+	if Cfg.Gateway != nil {
+		gatewayAPI = &gateway.API{
+			Backend:     gateway.NewFanout(datanodeAPI),
+			QueryEngine: logql.NewEngine(time.Duration(Cfg.Gateway.QueryEngine.Timeout)),
+		}
+
+		router.GET("/api/v1/query", gatewayAPI.HttpSelectQuery)
+		router.POST("/api/v1/query", gatewayAPI.HttpSelectQuery)
+		router.GET("/api/v1/series", gatewayAPI.HttpSeriesLabels)
+		router.POST("/api/v1/series", gatewayAPI.HttpSeriesLabels)
+		router.GET("/api/v1/label/:name/values", gatewayAPI.HttpLabelValues)
+		router.POST("/api/v1/label/:name/values", gatewayAPI.HttpLabelValues)
+	}
 
 	if Cfg.Storage != nil {
 		var err error
-		localStorage, err = storage.New()
+		datanodeAPI, err = datanode.New()
 		if err != nil {
-			level.Error(Logger).Log("msg", "failed to init storage", "err", err)
+			level.Error(Logger).Log("msg", "failed to init datanode", "err", err)
 			return
 		}
 
 		heartbeat = meta.NewHeartbeat(time.Duration(Cfg.Storage.StatReport.SessionExpireTTL), time.Duration(Cfg.Storage.StatReport.HeartbeartInterval), func() (meta.Node, error) {
-			stat, err := localStorage.Info(false)
+			stat, err := datanodeAPI.Info(false)
 			return stat.Node, err
 		})
 
 		router.GET("/joinCluster", func(ctx *fasthttp.RequestCtx) {
 			addr := ctx.QueryArgs().Peek("addr")
-			localStorage.JoinCluster(string(addr))
+			datanodeAPI.JoinCluster(string(addr))
 		})
 		router.GET("/stat", func(ctx *fasthttp.RequestCtx) {
 			if arg := ctx.QueryArgs().Peek("reset"); arg != nil {
-				localStorage.OpStat.Reset()
+				datanodeAPI.OpStat.Reset()
 			}
-			stat, err := localStorage.Info(true)
+			stat, err := datanodeAPI.Info(true)
 			if err != nil {
 				ctx.Error(err.Error(), http.StatusInternalServerError)
 			} else {
 				ctx.SuccessString("text/plain", stat.String())
 			}
 		})
-	}
-
-	if Cfg.Gateway != nil {
-		gateway = &Gateway{
-			Backend:     backend.NewFanout(localStorage),
-			QueryEngine: logql.NewEngine(time.Duration(Cfg.Gateway.QueryEngine.Timeout)),
-		}
-
-		router.GET("/api/v1/query", gateway.HttpSelectQuery)
-		router.POST("/api/v1/query", gateway.HttpSelectQuery)
-		router.GET("/api/v1/series", gateway.HttpSeriesLabels)
-		router.POST("/api/v1/series", gateway.HttpSeriesLabels)
-		router.GET("/api/v1/label/:name/values", gateway.HttpLabelValues)
-		router.POST("/api/v1/label/:name/values", gateway.HttpLabelValues)
 	}
 
 	httpServer := &fasthttp.Server{}
@@ -202,8 +203,8 @@ func Run() {
 	}()
 
 	tcpServer := tcp.NewTcpServer(Cfg.TcpPort, Cfg.MaxConn, &tcpServerObserver{
-		gateway:   gateway,
-		storage:   localStorage,
+		gateway:   gatewayAPI,
+		datanode:  datanodeAPI,
 		heartbeat: heartbeat,
 	})
 	go tcpServer.Run()

@@ -36,12 +36,14 @@ import (
 )
 
 type Node struct {
-	ShardID  string
-	IP       string
-	Port     string
-	DiskFree uint64
-	IDC      string
-	addr     *string `json:"-"`
+	ShardID    string
+	IP         string
+	Port       string
+	DiskFree   uint64
+	IDC        string
+	MasterIP   string
+	MasterPort string
+	addr       *string
 }
 
 func (node *Node) Addr() string {

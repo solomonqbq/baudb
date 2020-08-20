@@ -35,20 +35,19 @@ type SlaveOfCommand struct {
 
 type SyncHandshake struct {
 	SlaveAddr    string `msg:"slaveAddr"`
-	BlocksMinT   int64  `msg:"blocksMinT"`
 	SlaveOfNoOne bool   `msg:"slaveOfNoOne"`
 }
 
 type SyncHandshakeAck struct {
-	Status     HandshakeStatus `msg:"status"`
-	RelationID string          `msg:"relationID"`
-	Message    string          `msg:"message"`
+	Status  HandshakeStatus `msg:"status"`
+	ShardID string          `msg:"shardID"`
+	Message string          `msg:"message"`
 }
 
 type BlockSyncOffset struct {
+	DB     string `msg:"db"`
 	Ulid   string `msg:"ulid"`
 	MinT   int64  `msg:"minT"`
-	MaxT   int64  `msg:"maxT"`
 	Path   string `msg:"path"`
 	Offset int64  `msg:"Offset"`
 }
@@ -56,7 +55,7 @@ type BlockSyncOffset struct {
 type SyncHeartbeat struct {
 	MasterAddr    string           `msg:"masterAddr"`
 	SlaveAddr     string           `msg:"slaveAddr"`
-	RelationID    string           `msg:"relationID"`
+	ShardID       string           `msg:"shardID"`
 	BlkSyncOffset *BlockSyncOffset `msg:"blkSyncOffset"`
 }
 

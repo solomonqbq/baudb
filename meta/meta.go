@@ -17,6 +17,7 @@ package meta
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"os"
 	"sort"
@@ -27,16 +28,22 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/baudb/baudb/msg"
+	backendmsg "github.com/baudb/baudb/msg/backend"
+	"github.com/baudb/baudb/tcp"
 	"github.com/baudb/baudb/vars"
 	"github.com/go-kit/kit/log/level"
 	"github.com/pkg/errors"
 	"go.etcd.io/etcd/clientv3"
+	"go.etcd.io/etcd/clientv3/concurrency"
 	"go.etcd.io/etcd/mvcc/mvccpb"
 )
 
 type Shard struct {
-	ID    string
-	Nodes []*Node
+	ID          string
+	Masters     []*Node
+	Slaves      []*Node
+	failovering uint32
 }
 
 //meta's responsibility is to provide our necessary data
@@ -150,11 +157,16 @@ func (m *meta) RefreshTopology() error {
 			shards[node.ShardID] = shard
 		}
 
-		shard.Nodes = append(shard.Nodes, nodes[i])
+		if node.MasterIP == "" && node.MasterPort == "" {
+			shard.Masters = append(shard.Masters, nodes[i])
+		} else {
+			shard.Slaves = append(shard.Slaves, nodes[i])
+		}
 	}
 
 	for _, shard := range shards {
-		sort.Sort(NodesSortable(shard.Nodes))
+		sort.Sort(NodesSortable(shard.Masters))
+		sort.Sort(NodesSortable(shard.Slaves))
 	}
 
 	atomic.StorePointer(&m.shards, (unsafe.Pointer)(&shards))
@@ -260,6 +272,11 @@ func (m *meta) watch() {
 							"preKey", ev.PrevKv.Key,
 							"preValue", ev.PrevKv.Value,
 						)
+
+						var node Node
+						if err = json.Unmarshal(ev.PrevKv.Value, &node); err == nil {
+							FailoverIfNeeded(node.ShardID)
+						}
 					}
 				}
 				m.RefreshTopology()
@@ -300,16 +317,121 @@ func GetShard(shardID string) (*Shard, bool) {
 	return globalMeta.GetShard(shardID)
 }
 
-func GetNodes(shardID string) []*Node {
+func GetMasters(shardID string) []*Node {
 	shard, found := globalMeta.GetShard(shardID)
 
 	if !found || shard == nil {
 		return nil
 	}
 
-	return shard.Nodes
+	return shard.Masters
+}
+
+func GetSlaves(shardID string) []*Node {
+	shard, found := globalMeta.GetShard(shardID)
+
+	if !found || shard == nil {
+		return nil
+	}
+
+	return shard.Slaves
 }
 
 func RefreshTopology() error {
 	return globalMeta.RefreshTopology()
+}
+
+func FailoverIfNeeded(shardID string) {
+	shard, found := globalMeta.GetShard(shardID)
+	if !found || len(shard.Masters) > 0 {
+		return
+	}
+
+	globalMeta.RefreshTopology()
+
+	shard, found = globalMeta.GetShard(shardID)
+	if !found || len(shard.Masters) > 0 {
+		return
+	}
+
+	var (
+		slaveOfReq      = tcp.Message{Message: &backendmsg.SlaveOfCommand{}}
+		slaveOfReqBytes = make([]byte, 1+binary.MaxVarintLen64+slaveOfReq.SizeOfRaw())
+		msgCodec        tcp.MsgCodec
+	)
+
+	n, err := msgCodec.Encode(slaveOfReq, slaveOfReqBytes) //slaveof no one
+	if err != nil {
+		level.Error(vars.Logger).Log("err", err)
+		return
+	}
+
+	if !atomic.CompareAndSwapUint32(&shard.failovering, 0, 1) {
+		return
+	}
+	defer atomic.StoreUint32(&shard.failovering, 0)
+
+	failoverErr := mutexRun("failover", func(session *concurrency.Session) error {
+		masters := GetMasters(shardID)
+		if len(masters) > 0{ //already failover by other gateway
+			return nil
+		}
+
+		slaves := GetSlaves(shardID)
+		if len(slaves) == 0 {
+			return errors.New("no available slave to failover")
+		}
+
+		chosen := slaves[0]
+
+		slaveConn, err := tcp.Connect(chosen.Addr())
+		if err != nil {
+			return errors.Wrap(err, "failed to connect to slave")
+		}
+		defer slaveConn.Close()
+
+		err = slaveConn.WriteMsg(slaveOfReqBytes[:n])
+		if err != nil {
+			return errors.Wrap(err, "failed to send slave of no one")
+		}
+
+		level.Warn(vars.Logger).Log("msg", "failover triggered", "shard", shardID, "chosen", chosen.Addr())
+
+		c := make(chan struct{})
+		go func() {
+			defer close(c)
+
+			slaveOfRespBytes, er := slaveConn.ReadMsg()
+			if er != nil {
+				return
+			}
+
+			reply, er := msgCodec.Decode(slaveOfRespBytes)
+			if raw := reply.GetRaw(); er == nil && raw != nil {
+				reply, ok := raw.(*msg.GeneralResponse)
+				if !ok {
+					return
+				}
+
+				if reply.Status != msg.StatusCode_Succeed {
+					err = errors.New(reply.Message)
+				} else {
+					level.Warn(vars.Logger).Log("msg", "failover succeed", "shard", shardID, "chosen", chosen.Addr())
+				}
+			}
+		}()
+
+		select {
+		case <-c:
+		case <-time.After(15 * time.Second):
+		}
+
+		globalMeta.RefreshTopology()
+
+		return err
+	})
+
+	if failoverErr != nil {
+		level.Error(vars.Logger).Log("msg", "error occurred when failover", "shard", shardID, "err", failoverErr)
+	}
 }

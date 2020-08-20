@@ -10,15 +10,15 @@ import (
 func (z *BlockSyncOffset) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
 	// map header, size 5
+	// string "db"
+	o = append(o, 0x85, 0xa2, 0x64, 0x62)
+	o = msgp.AppendString(o, z.DB)
 	// string "ulid"
-	o = append(o, 0x85, 0xa4, 0x75, 0x6c, 0x69, 0x64)
+	o = append(o, 0xa4, 0x75, 0x6c, 0x69, 0x64)
 	o = msgp.AppendString(o, z.Ulid)
 	// string "minT"
 	o = append(o, 0xa4, 0x6d, 0x69, 0x6e, 0x54)
 	o = msgp.AppendInt64(o, z.MinT)
-	// string "maxT"
-	o = append(o, 0xa4, 0x6d, 0x61, 0x78, 0x54)
-	o = msgp.AppendInt64(o, z.MaxT)
 	// string "path"
 	o = append(o, 0xa4, 0x70, 0x61, 0x74, 0x68)
 	o = msgp.AppendString(o, z.Path)
@@ -46,6 +46,12 @@ func (z *BlockSyncOffset) UnmarshalMsg(bts []byte) (o []byte, err error) {
 			return
 		}
 		switch msgp.UnsafeString(field) {
+		case "db":
+			z.DB, bts, err = msgp.ReadStringBytes(bts)
+			if err != nil {
+				err = msgp.WrapError(err, "DB")
+				return
+			}
 		case "ulid":
 			z.Ulid, bts, err = msgp.ReadStringBytes(bts)
 			if err != nil {
@@ -56,12 +62,6 @@ func (z *BlockSyncOffset) UnmarshalMsg(bts []byte) (o []byte, err error) {
 			z.MinT, bts, err = msgp.ReadInt64Bytes(bts)
 			if err != nil {
 				err = msgp.WrapError(err, "MinT")
-				return
-			}
-		case "maxT":
-			z.MaxT, bts, err = msgp.ReadInt64Bytes(bts)
-			if err != nil {
-				err = msgp.WrapError(err, "MaxT")
 				return
 			}
 		case "path":
@@ -90,7 +90,7 @@ func (z *BlockSyncOffset) UnmarshalMsg(bts []byte) (o []byte, err error) {
 
 // Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
 func (z *BlockSyncOffset) Msgsize() (s int) {
-	s = 1 + 5 + msgp.StringPrefixSize + len(z.Ulid) + 5 + msgp.Int64Size + 5 + msgp.Int64Size + 5 + msgp.StringPrefixSize + len(z.Path) + 7 + msgp.Int64Size
+	s = 1 + 3 + msgp.StringPrefixSize + len(z.DB) + 5 + msgp.StringPrefixSize + len(z.Ulid) + 5 + msgp.Int64Size + 5 + msgp.StringPrefixSize + len(z.Path) + 7 + msgp.Int64Size
 	return
 }
 
@@ -177,13 +177,10 @@ func (z SlaveOfCommand) Msgsize() (s int) {
 // MarshalMsg implements msgp.Marshaler
 func (z SyncHandshake) MarshalMsg(b []byte) (o []byte, err error) {
 	o = msgp.Require(b, z.Msgsize())
-	// map header, size 3
+	// map header, size 2
 	// string "slaveAddr"
-	o = append(o, 0x83, 0xa9, 0x73, 0x6c, 0x61, 0x76, 0x65, 0x41, 0x64, 0x64, 0x72)
+	o = append(o, 0x82, 0xa9, 0x73, 0x6c, 0x61, 0x76, 0x65, 0x41, 0x64, 0x64, 0x72)
 	o = msgp.AppendString(o, z.SlaveAddr)
-	// string "blocksMinT"
-	o = append(o, 0xaa, 0x62, 0x6c, 0x6f, 0x63, 0x6b, 0x73, 0x4d, 0x69, 0x6e, 0x54)
-	o = msgp.AppendInt64(o, z.BlocksMinT)
 	// string "slaveOfNoOne"
 	o = append(o, 0xac, 0x73, 0x6c, 0x61, 0x76, 0x65, 0x4f, 0x66, 0x4e, 0x6f, 0x4f, 0x6e, 0x65)
 	o = msgp.AppendBool(o, z.SlaveOfNoOne)
@@ -214,12 +211,6 @@ func (z *SyncHandshake) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				err = msgp.WrapError(err, "SlaveAddr")
 				return
 			}
-		case "blocksMinT":
-			z.BlocksMinT, bts, err = msgp.ReadInt64Bytes(bts)
-			if err != nil {
-				err = msgp.WrapError(err, "BlocksMinT")
-				return
-			}
 		case "slaveOfNoOne":
 			z.SlaveOfNoOne, bts, err = msgp.ReadBoolBytes(bts)
 			if err != nil {
@@ -240,7 +231,7 @@ func (z *SyncHandshake) UnmarshalMsg(bts []byte) (o []byte, err error) {
 
 // Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
 func (z SyncHandshake) Msgsize() (s int) {
-	s = 1 + 10 + msgp.StringPrefixSize + len(z.SlaveAddr) + 11 + msgp.Int64Size + 13 + msgp.BoolSize
+	s = 1 + 10 + msgp.StringPrefixSize + len(z.SlaveAddr) + 13 + msgp.BoolSize
 	return
 }
 
@@ -251,9 +242,9 @@ func (z SyncHandshakeAck) MarshalMsg(b []byte) (o []byte, err error) {
 	// string "status"
 	o = append(o, 0x83, 0xa6, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73)
 	o = msgp.AppendByte(o, byte(z.Status))
-	// string "relationID"
-	o = append(o, 0xaa, 0x72, 0x65, 0x6c, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x49, 0x44)
-	o = msgp.AppendString(o, z.RelationID)
+	// string "shardID"
+	o = append(o, 0xa7, 0x73, 0x68, 0x61, 0x72, 0x64, 0x49, 0x44)
+	o = msgp.AppendString(o, z.ShardID)
 	// string "message"
 	o = append(o, 0xa7, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65)
 	o = msgp.AppendString(o, z.Message)
@@ -288,10 +279,10 @@ func (z *SyncHandshakeAck) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				}
 				z.Status = HandshakeStatus(zb0002)
 			}
-		case "relationID":
-			z.RelationID, bts, err = msgp.ReadStringBytes(bts)
+		case "shardID":
+			z.ShardID, bts, err = msgp.ReadStringBytes(bts)
 			if err != nil {
-				err = msgp.WrapError(err, "RelationID")
+				err = msgp.WrapError(err, "ShardID")
 				return
 			}
 		case "message":
@@ -314,7 +305,7 @@ func (z *SyncHandshakeAck) UnmarshalMsg(bts []byte) (o []byte, err error) {
 
 // Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
 func (z SyncHandshakeAck) Msgsize() (s int) {
-	s = 1 + 7 + msgp.ByteSize + 11 + msgp.StringPrefixSize + len(z.RelationID) + 8 + msgp.StringPrefixSize + len(z.Message)
+	s = 1 + 7 + msgp.ByteSize + 8 + msgp.StringPrefixSize + len(z.ShardID) + 8 + msgp.StringPrefixSize + len(z.Message)
 	return
 }
 
@@ -328,9 +319,9 @@ func (z *SyncHeartbeat) MarshalMsg(b []byte) (o []byte, err error) {
 	// string "slaveAddr"
 	o = append(o, 0xa9, 0x73, 0x6c, 0x61, 0x76, 0x65, 0x41, 0x64, 0x64, 0x72)
 	o = msgp.AppendString(o, z.SlaveAddr)
-	// string "relationID"
-	o = append(o, 0xaa, 0x72, 0x65, 0x6c, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x49, 0x44)
-	o = msgp.AppendString(o, z.RelationID)
+	// string "shardID"
+	o = append(o, 0xa7, 0x73, 0x68, 0x61, 0x72, 0x64, 0x49, 0x44)
+	o = msgp.AppendString(o, z.ShardID)
 	// string "blkSyncOffset"
 	o = append(o, 0xad, 0x62, 0x6c, 0x6b, 0x53, 0x79, 0x6e, 0x63, 0x4f, 0x66, 0x66, 0x73, 0x65, 0x74)
 	if z.BlkSyncOffset == nil {
@@ -375,10 +366,10 @@ func (z *SyncHeartbeat) UnmarshalMsg(bts []byte) (o []byte, err error) {
 				err = msgp.WrapError(err, "SlaveAddr")
 				return
 			}
-		case "relationID":
-			z.RelationID, bts, err = msgp.ReadStringBytes(bts)
+		case "shardID":
+			z.ShardID, bts, err = msgp.ReadStringBytes(bts)
 			if err != nil {
-				err = msgp.WrapError(err, "RelationID")
+				err = msgp.WrapError(err, "ShardID")
 				return
 			}
 		case "blkSyncOffset":
@@ -412,7 +403,7 @@ func (z *SyncHeartbeat) UnmarshalMsg(bts []byte) (o []byte, err error) {
 
 // Msgsize returns an upper bound estimate of the number of bytes occupied by the serialized message
 func (z *SyncHeartbeat) Msgsize() (s int) {
-	s = 1 + 11 + msgp.StringPrefixSize + len(z.MasterAddr) + 10 + msgp.StringPrefixSize + len(z.SlaveAddr) + 11 + msgp.StringPrefixSize + len(z.RelationID) + 14
+	s = 1 + 11 + msgp.StringPrefixSize + len(z.MasterAddr) + 10 + msgp.StringPrefixSize + len(z.SlaveAddr) + 8 + msgp.StringPrefixSize + len(z.ShardID) + 14
 	if z.BlkSyncOffset == nil {
 		s += msgp.NilSize
 	} else {

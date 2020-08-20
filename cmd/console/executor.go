@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/baudb/baudb/logql"
+	"github.com/baudb/baudb/gateway/logql"
 	"github.com/baudb/baudb/msg"
 	backendmsg "github.com/baudb/baudb/msg/backend"
 	ts "github.com/baudb/baudb/util/time"

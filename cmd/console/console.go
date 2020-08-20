@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/baudb/baudb/logql"
+	"github.com/baudb/baudb/gateway/logql"
 	"github.com/peterh/liner"
 )
 
