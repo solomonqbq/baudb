@@ -74,6 +74,7 @@ type Compactor interface {
 
 // LeveledCompactor implements the Compactor interface.
 type LeveledCompactor struct {
+	dbName    string
 	metrics   *compactorMetrics
 	logger    log.Logger
 	ranges    []int64
@@ -142,7 +143,7 @@ func newCompactorMetrics(r prometheus.Registerer) *compactorMetrics {
 }
 
 // NewLeveledCompactor returns a LeveledCompactor.
-func NewLeveledCompactor(ctx context.Context, r prometheus.Registerer, l log.Logger, ranges []int64, pool chunkenc.Pool) (*LeveledCompactor, error) {
+func NewLeveledCompactor(ctx context.Context, r prometheus.Registerer, l log.Logger, dbName string, ranges []int64, pool chunkenc.Pool) (*LeveledCompactor, error) {
 	if len(ranges) == 0 {
 		return nil, errors.Errorf("at least one range must be provided")
 	}
@@ -153,6 +154,7 @@ func NewLeveledCompactor(ctx context.Context, r prometheus.Registerer, l log.Log
 		l = log.NewNopLogger()
 	}
 	return &LeveledCompactor{
+		dbName:    dbName,
 		ranges:    ranges,
 		chunkPool: pool,
 		logger:    l,
@@ -402,6 +404,7 @@ func (c *LeveledCompactor) Compact(dest string, dirs []string, open []*Block) (u
 				if err != nil {
 					level.Error(c.logger).Log(
 						"msg", "Failed to write 'Deletable' to meta file after compaction",
+						"db", c.dbName,
 						"ulid", b.meta.ULID,
 					)
 				}
@@ -410,6 +413,7 @@ func (c *LeveledCompactor) Compact(dest string, dirs []string, open []*Block) (u
 			uid = ulid.ULID{}
 			level.Info(c.logger).Log(
 				"msg", "compact blocks resulted in empty block",
+				"db", c.dbName,
 				"count", len(blocks),
 				"sources", fmt.Sprintf("%v", uids),
 				"duration", time.Since(start),
@@ -417,6 +421,7 @@ func (c *LeveledCompactor) Compact(dest string, dirs []string, open []*Block) (u
 		} else {
 			level.Info(c.logger).Log(
 				"msg", "compact blocks",
+				"db", c.dbName,
 				"count", len(blocks),
 				"mint", meta.MinTime,
 				"maxt", meta.MaxTime,
@@ -472,6 +477,7 @@ func (c *LeveledCompactor) Write(dest string, b BlockReader, mint, maxt int64, p
 
 	level.Info(c.logger).Log(
 		"msg", "write block",
+		"db", c.dbName,
 		"mint", meta.MinTime,
 		"maxt", meta.MaxTime,
 		"ulid", meta.ULID,
@@ -513,7 +519,7 @@ func (c *LeveledCompactor) write(dest string, meta *BlockMeta, blocks ...BlockRe
 
 		// RemoveAll returns no error when tmp doesn't exist so it is safe to always run it.
 		if err := os.RemoveAll(tmp); err != nil {
-			level.Error(c.logger).Log("msg", "removed tmp folder after failed compaction", "err", err.Error())
+			level.Error(c.logger).Log("msg", "removed tmp folder after failed compaction", "db", c.dbName, "err", err.Error())
 		}
 		c.metrics.ran.Inc()
 		c.metrics.duration.Observe(time.Since(t).Seconds())
@@ -745,8 +751,8 @@ func (c *LeveledCompactor) populateBlock(blocks []BlockReader, meta *BlockMeta, 
 			// chunks are closed hence the chk.MaxTime >= meta.MaxTime check.
 			//
 			// TODO think how to avoid the typecasting to verify when it is head block.
-			if _, isHeadChunk := chk.Chunk.(*safeChunk); isHeadChunk && chk.MaxTime >= meta.MaxTime {
-				dranges = append(dranges, Interval{Mint: meta.MaxTime, Maxt: math.MaxInt64})
+			if _, isHeadChunk := chk.Chunk.(*safeChunk); isHeadChunk && chk.MaxTime > meta.MaxTime {
+				dranges = append(dranges, Interval{Mint: meta.MaxTime + 1, Maxt: math.MaxInt64})
 
 			} else
 			// Sanity check for disk blocks.

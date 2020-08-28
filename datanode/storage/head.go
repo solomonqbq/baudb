@@ -408,8 +408,7 @@ func (a *headAppender) Commit() error {
 	defer atomic.AddInt64(&a.head.metrics.activeAppenders, -1)
 	defer a.head.putAppendBuffer(a.samples)
 
-	total := len(a.samples)
-	bytesAppended := 0
+	var samplesAppended, bytesAppended int
 
 	for _, s := range a.samples {
 		s.series.Lock()
@@ -417,9 +416,8 @@ func (a *headAppender) Commit() error {
 		s.series.pendingCommit = false
 		s.series.Unlock()
 
-		if !ok {
-			total--
-		} else {
+		if ok {
+			samplesAppended++
 			bytesAppended += len(s.V)
 		}
 
@@ -430,7 +428,7 @@ func (a *headAppender) Commit() error {
 	}
 
 	atomic.AddUint64(&a.head.metrics.bytes, uint64(bytesAppended))
-	atomic.AddUint64(&a.head.metrics.samplesAppended, uint64(total))
+	atomic.AddUint64(&a.head.metrics.samplesAppended, uint64(samplesAppended))
 	a.head.updateMinMaxTime(a.mint, a.maxt)
 
 	return nil
@@ -831,14 +829,14 @@ func (h *headIndexReader) Series(ref uint64, lbls *labels.Labels, chks *[]chunks
 			continue
 		}
 		// Set the head chunks as open (being appended to).
-		maxTime := c.maxTime
-		if s.headChunk == c {
-			maxTime = math.MaxInt64
-		}
+		//maxTime := c.maxTime
+		//if s.headChunk == c {
+		//	maxTime = math.MaxInt64
+		//}
 
 		*chks = append(*chks, chunks.Meta{
 			MinTime: c.minTime,
-			MaxTime: maxTime,
+			MaxTime: c.maxTime,
 			Ref:     packChunkID(s.ref, uint64(s.chunkID(i))),
 		})
 	}
@@ -1284,8 +1282,8 @@ type memChunk struct {
 func newMemChunk(minValidTime, maxValidTime int64) *memChunk {
 	c := &memChunk{
 		chunk:        chunkenc.NewFreezableChunk(),
-		minTime:      math.MaxInt64,
-		maxTime:      math.MinInt64,
+		minTime:      maxValidTime,
+		maxTime:      minValidTime,
 		minValidTime: minValidTime,
 		maxValidTime: maxValidTime,
 	}

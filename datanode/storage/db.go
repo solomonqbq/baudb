@@ -301,7 +301,7 @@ func Open(name, dir string, l log.Logger, r prometheus.Registerer, opts *Options
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	db.compactor, err = NewLeveledCompactor(ctx, r, l, opts.BlockRanges, db.chunkPool)
+	db.compactor, err = NewLeveledCompactor(ctx, r, l, name, opts.BlockRanges, db.chunkPool)
 	if err != nil {
 		cancel()
 		return nil, errors.Wrap(err, "create leveled compactor")
@@ -448,20 +448,25 @@ func (db *DB) compact() (err error) {
 
 		var persistErr, reloadErr tsdb_errors.MultiError
 
+		maxtGlobal := toCompact.MaxTime()
 		maxRange := db.opts.BlockRanges[len(db.opts.BlockRanges)-1]
-		mint := toCompact.MinTime()
-		maxt := rangeForTimestamp(mint, maxRange)
 
-		for maxt < toCompact.MaxTime() {
+		mintRange := toCompact.MinTime()
+		maxtRange := rangeForTimestamp(mintRange, maxRange)
+
+		for mintRange < maxtGlobal {
 			rangeToCompact := &rangeHead{
 				head: toCompact,
-				mint: mint,
-				maxt: maxt - 1,
+				mint: mintRange,
+				maxt: maxtRange - 1,
+			}
+			if rangeToCompact.maxt > maxtGlobal {
+				rangeToCompact.maxt = maxtGlobal
 			}
 
-			uid, err := db.compactor.Write(db.dir, rangeToCompact, mint, maxt, nil)
-			mint = maxt
-			maxt = rangeForTimestamp(mint, maxRange)
+			uid, err := db.compactor.Write(db.dir, rangeToCompact, rangeToCompact.mint, rangeToCompact.maxt, nil)
+			mintRange = maxtRange
+			maxtRange = rangeForTimestamp(mintRange, maxRange)
 
 			if err != nil {
 				persistErr.Add(err)

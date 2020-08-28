@@ -50,12 +50,12 @@ func (c *FreezableChunk) Freeze() error {
 	if err != nil {
 		return err
 	}
-	defer app.Close()
 
 	iter := c.Iterator(nil)
 	for iter.Next() {
 		app.Append(iter.At())
 	}
+	app.Close()
 
 	atomic.StoreUint32(&c.frozen, 1)
 
