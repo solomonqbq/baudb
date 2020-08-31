@@ -183,6 +183,11 @@ func etcdPut(k string, v interface{}, leaseID clientv3.LeaseID) error {
 			cli := session.Client()
 			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(vars.Cfg.Etcd.RWTimeout))
 
+			resp, er := cli.Get(ctx, k)
+			if er == nil && resp != nil && len(resp.Kvs) > 0 {
+				return nil
+			}
+
 			if leaseID == clientv3.NoLease {
 				_, er = cli.Put(ctx, k, string(b))
 			} else {
