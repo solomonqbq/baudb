@@ -210,7 +210,12 @@ func New() (*API, error) {
 	opStat := new(OPStat)
 	shardMgr := new(meta.ShardManager)
 
-	var dbs []*storage.DB
+	var (
+		dbs      []*storage.DB
+		multiErr error
+		wg       sync.WaitGroup
+		mtx      sync.Mutex
+	)
 
 	opts := &storage.Options{
 		RetentionDuration:      uint64(vars.Cfg.Storage.TSDB.RetentionDuration) / 1e6,
@@ -220,12 +225,25 @@ func New() (*API, error) {
 		CompactLowWaterMark:    uint64(vars.Cfg.Limit.Compact.LowWaterMark),
 		CompactHighWaterMark:   uint64(vars.Cfg.Limit.Compact.HighWaterMark),
 	}
+
 	for i, path := range vars.Cfg.Storage.TSDB.Paths {
-		db, err := storage.Open(fmt.Sprintf("db%d", i), path, vars.Logger, nil, opts)
-		if err != nil {
-			return nil, err
-		}
-		dbs = append(dbs, db)
+		wg.Add(1)
+		go func(name, path string) {
+			defer wg.Done()
+
+			if db, err := storage.Open(name, path, vars.Logger, nil, opts); err == nil {
+				dbs = append(dbs, db)
+			} else {
+				mtx.Lock()
+				multiErr = multierr.Append(multiErr, err)
+				mtx.Unlock()
+			}
+		}(fmt.Sprintf("db%d", i), path)
+	}
+	wg.Wait()
+
+	if multiErr != nil {
+		return nil, multiErr
 	}
 
 	return &API{
