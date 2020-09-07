@@ -18,15 +18,17 @@ package tcp
 import (
 	"context"
 	"encoding/binary"
+	"io"
+	"net"
+	"sync"
+	"sync/atomic"
+
 	"github.com/baudb/baudb/msg"
 	"github.com/baudb/baudb/util/syn"
 	. "github.com/baudb/baudb/vars"
 	"github.com/go-kit/kit/log/level"
 	"github.com/pkg/errors"
-	"io"
-	"net"
-	"sync"
-	"sync/atomic"
+	"golang.org/x/time/rate"
 )
 
 var bytesPool = syn.NewBucketizedPool(1e4, 1e7, 4, false, func(s int) interface{} { return make([]byte, s) }, func() syn.Bucket {
@@ -213,9 +215,9 @@ func (loop *ReadWriteLoop) IsRunning() bool {
 	return atomic.LoadUint32(&loop.closed) == 0
 }
 
-func NewReadWriteLoop(conn *net.TCPConn, handle func(ctx context.Context, in Message, inBytes []byte) Message) *ReadWriteLoop {
+func NewReadWriteLoop(conn *net.TCPConn, rateLimiter *rate.Limiter, handle func(ctx context.Context, in Message, inBytes []byte) Message) *ReadWriteLoop {
 	return &ReadWriteLoop{
-		conn:   NewConn(conn),
+		conn:   newConnWithRate(conn, rateLimiter),
 		out:    syn.NewQueue(512),
 		handle: handle,
 	}

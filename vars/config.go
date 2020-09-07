@@ -83,8 +83,9 @@ type CompactConfig struct {
 }
 
 type LimitConfig struct {
-	RLimit  uint64        `toml:"rlimit,omitempty"`
-	Compact CompactConfig `toml:"compact"`
+	RLimit     uint64        `toml:"rlimit,omitempty"`
+	InboundKBS toml.Size     `toml:"inbound_kilo_bytes_per_sec,omitempty"`
+	Compact    CompactConfig `toml:"compact"`
 }
 
 type Config struct {

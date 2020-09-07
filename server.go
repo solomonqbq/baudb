@@ -38,12 +38,14 @@ import (
 	"github.com/go-kit/kit/log/level"
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/pprofhandler"
+	"golang.org/x/time/rate"
 )
 
 type tcpServerObserver struct {
-	gateway   *gateway.API
-	datanode  *datanode.API
-	heartbeat *meta.Heartbeat
+	gateway     *gateway.API
+	datanode    *datanode.API
+	heartbeat   *meta.Heartbeat
+	rateLimiter *rate.Limiter
 }
 
 func (obs *tcpServerObserver) OnStart() error {
@@ -81,7 +83,7 @@ func (obs *tcpServerObserver) OnAccept(tcpConn *net.TCPConn) *tcp.ReadWriteLoop 
 	tcpConn.SetReadBuffer(1024 * 1024)
 	tcpConn.SetWriteBuffer(1024 * 1024)
 
-	return tcp.NewReadWriteLoop(tcpConn, func(ctx context.Context, req tcp.Message, reqBytes []byte) tcp.Message {
+	return tcp.NewReadWriteLoop(tcpConn, obs.rateLimiter, func(ctx context.Context, req tcp.Message, reqBytes []byte) tcp.Message {
 		raw := req.GetRaw()
 		response := tcp.Message{Opaque: req.GetOpaque()}
 
@@ -140,6 +142,7 @@ func Run() {
 		gatewayAPI  *gateway.API
 		datanodeAPI *datanode.API
 		heartbeat   *meta.Heartbeat
+		rateLimiter *rate.Limiter
 		router      = fasthttprouter.New()
 	)
 
@@ -202,10 +205,15 @@ func Run() {
 		}
 	}()
 
+	if Cfg.Limit.InboundKBS > 0 {
+		rateLimiter = rate.NewLimiter(rate.Limit(Cfg.Limit.InboundKBS), int(Cfg.Limit.InboundKBS)/6+int(Cfg.Limit.InboundKBS))
+	}
+
 	tcpServer := tcp.NewTcpServer(Cfg.TcpPort, Cfg.MaxConn, &tcpServerObserver{
-		gateway:   gatewayAPI,
-		datanode:  datanodeAPI,
-		heartbeat: heartbeat,
+		gateway:     gatewayAPI,
+		datanode:    datanodeAPI,
+		heartbeat:   heartbeat,
+		rateLimiter: rateLimiter,
 	})
 	go tcpServer.Run()
 
