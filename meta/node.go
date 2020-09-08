@@ -18,8 +18,6 @@ package meta
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"net"
 	"sort"
 	"strings"
 	"sync"
@@ -215,12 +213,7 @@ func (h *Heartbeat) Stop() {
 }
 
 func (h *Heartbeat) keepLease() {
-	reConnect, reGrant := false, false
-
-	clientCfg := clientv3.Config{
-		Endpoints:   vars.Cfg.Etcd.Endpoints,
-		DialTimeout: time.Duration(vars.Cfg.Etcd.DialTimeout),
-	}
+	reGrant := false
 
 	for {
 		select {
@@ -228,24 +221,6 @@ func (h *Heartbeat) keepLease() {
 			level.Warn(vars.Logger).Log("msg", "keep lease for heartbeat exit!!!")
 			return
 		default:
-		}
-
-		if reConnect {
-			level.Warn(vars.Logger).Log("msg", "reconnect for heartbeat")
-			cli, err := clientv3.New(clientCfg)
-			if err != nil {
-				time.Sleep(2 * time.Second)
-				continue
-			}
-
-			h.cmtx.Lock()
-			if h.client != nil {
-				h.client.Close()
-			}
-			h.client = cli
-			h.cmtx.Unlock()
-
-			reConnect = false
 		}
 
 		if reGrant {
@@ -264,11 +239,8 @@ func (h *Heartbeat) keepLease() {
 		keepAlive, err := h.client.KeepAlive(ctx, h.leaseID)
 		if err != nil || keepAlive == nil {
 			cancel()
-			if _, ok := err.(net.Error); ok || err == io.EOF {
-				reConnect = true
-			} else {
-				reGrant = true
-			}
+			reGrant = true
+
 			h.lastNodeInfo = Node{}
 			continue
 		}
@@ -294,7 +266,6 @@ func (h *Heartbeat) keepLease() {
 		}
 
 		h.lastNodeInfo = Node{}
-		reConnect = true
 		reGrant = true
 	}
 }
