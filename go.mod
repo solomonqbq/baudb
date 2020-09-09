@@ -14,7 +14,7 @@ require (
 	github.com/opentracing/opentracing-go v1.1.0
 	github.com/peterh/liner v1.1.0
 	github.com/philhofer/fwd v1.0.0
-	github.com/pierrec/lz4/v4 v4.0.0
+	github.com/pierrec/lz4/v4 v4.0.2
 	github.com/pkg/errors v0.8.1
 	github.com/prometheus/client_golang v1.0.0
 	github.com/prometheus/common v0.6.0
@@ -31,7 +31,7 @@ require (
 	go.uber.org/multierr v1.1.0
 	golang.org/x/crypto v0.0.0-20190325154230-a5d413f7728c // indirect
 	golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
-	golang.org/x/sys v0.0.0-20191120155948-bd437916bb0e
+	golang.org/x/sys v0.0.0-20200615200032-f1bc736245b1
 	golang.org/x/text v0.3.2
 	golang.org/x/time v0.0.0-20200630173020-3af7569d3a1e
 	google.golang.org/genproto v0.0.0-20190307195333-5fe7a883aa19 // indirect
